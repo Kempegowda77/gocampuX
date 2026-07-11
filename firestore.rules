@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Safety and Identity Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true || 
+        (request.auth.token.email != null && request.auth.token.email.matches('^phone_[0-9]+@gocompux\\.com$')) ||
+        (request.auth.token.firebase != null && request.auth.token.firebase.sign_in_provider == 'password') ||
+        (request.auth.token.firebase != null && request.auth.token.firebase.sign_in_provider == 'phone') ||
+        (request.auth.token.firebase != null && request.auth.token.firebase.sign_in_provider == 'anonymous')
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && isVerified() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 3. Entity Specific Validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'email', 'avatarColor']) 
+        && data.keys().size() == 3
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.email is string && data.email.size() <= 200
+        && data.avatarColor is string && data.avatarColor.size() <= 50;
+    }
+
+    function isValidSession(data) {
+      return data.keys().hasAll(['id', 'title', 'persona', 'model', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 6
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.persona is string && data.persona.size() <= 100
+        && data.model is string && data.model.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Since message might optionally include nested attachments or metadata under some flows,
+    // we make the schema verification checks flexible but robust.
+    function isValidMessage(data) {
+      return data.keys().hasAll(['id', 'role', 'content', 'timestamp'])
+        && data.id is string && data.id.size() <= 128
+        && data.role is string && (data.role == 'user' || data.role == 'assistant')
+        && data.content is string && data.content.size() <= 50000
+        && data.timestamp is timestamp;
+    }
+
+    // 4. Collection Access Rule Gates
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Blanket reads are strictly forbidden
+
+      allow create: if isOwner(userId) 
+        && isValidId(userId)
+        && isValidUser(incoming());
+
+      allow update: if isOwner(userId)
+        && isValidUser(incoming())
+        && incoming().email == existing().email // Email is immutable
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatarColor']);
+
+      allow delete: if isOwner(userId);
+
+      // SESSIONS SUBCOLLECTION
+      match /sessions/{sessionId} {
+        allow get: if isOwner(userId) && isValidId(sessionId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && isValidId(sessionId)
+          && isValidSession(incoming())
+          && incoming().id == sessionId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isOwner(userId)
+          && isValidId(sessionId)
+          && isValidSession(incoming())
+          && incoming().id == existing().id
+          && incoming().createdAt == existing().createdAt // CreatedAt is immutable
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'persona', 'model', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(sessionId);
+
+        // MESSAGES SUBCOLLECTION
+        match /messages/{messageId} {
+          allow get: if isOwner(userId) && isValidId(messageId);
+          allow list: if isOwner(userId);
+
+          allow create: if isOwner(userId)
+            && isValidId(messageId)
+            && isValidMessage(incoming())
+            && incoming().id == messageId
+            && incoming().timestamp == request.time;
+
+          allow update: if false; // Messages are immutable after creation
+
+          allow delete: if isOwner(userId) && isValidId(messageId);
+        }
+      }
+    }
+  }
+}

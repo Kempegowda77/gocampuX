@@ -1,0 +1,120 @@
+{
+  "entities": {
+    "user": {
+      "title": "User Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The user's display name"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address"
+        },
+        "avatarColor": {
+          "type": "string",
+          "description": "Color for the avatar"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": [
+        "name",
+        "email",
+        "avatarColor"
+      ]
+    },
+    "session": {
+      "title": "Chat Session",
+      "description": "A chat conversation session metadata",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique session identifier"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the chat session"
+        },
+        "persona": {
+          "type": "string",
+          "description": "The persona ID used in the session"
+        },
+        "model": {
+          "type": "string",
+          "description": "The AI model used in the session"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "persona",
+        "model"
+      ]
+    },
+    "message": {
+      "title": "Chat Message",
+      "description": "A single message within a chat session",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique message identifier"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "description": "Sender role"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message content text"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Message sending timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "content"
+      ]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "user",
+      "description": "Public and private user profiles"
+    },
+    "users/{userId}/sessions/{sessionId}": {
+      "schema": "session",
+      "description": "User chat sessions"
+    },
+    "users/{userId}/sessions/{sessionId}/messages/{messageId}": {
+      "schema": "message",
+      "description": "Messages inside a chat session"
+    }
+  }
+}
