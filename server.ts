@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { streamChatWithFallback, chatWithFallback, getOrderedProviders, Message, ProviderOptions } from './src/lib/aiProvider.js';
+import { streamChatWithFallback, chatWithFallback, getOrderedProviders, Message, ProviderOptions } from './src/lib/aiProvider';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
