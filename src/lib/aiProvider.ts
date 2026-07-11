@@ -35,14 +35,88 @@ function mapProviderError(error: any, provider: string): Error {
   return new Error(userFriendlyMsg);
 }
 
-// Get the fallback ordered list of providers - ONLY OpenRouter
+// Get the fallback ordered list of providers
 export function getOrderedProviders(preferredProvider: string): string[] {
-  // Only use OpenRouter - return it as the sole provider
-  const hasKey = !!process.env.OPENROUTER_API_KEY;
-  if (hasKey) {
-    return ['openrouter'];
+  return [(preferredProvider || 'anthropic').toLowerCase().trim()];
+}
+
+// Direct Anthropic API Helper
+let anthropicClient: Anthropic | null = null;
+function getAnthropicClient() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY is not defined. Please check your environment variables.');
   }
-  return ['openrouter'];
+  if (!anthropicClient) {
+    anthropicClient = new Anthropic({ apiKey });
+  }
+  return anthropicClient;
+}
+
+async function chatAnthropic(options: ProviderOptions) {
+  const client = getAnthropicClient();
+  const model = options.model || process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
+  const system = options.systemInstruction;
+  const messages = formatMessagesForOpenRouter(options.messages); // Anthropic-shaped messages
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 1024,
+    system,
+    messages,
+  });
+
+  const text = response.content
+    .filter(block => block.type === 'text')
+    .map(block => (block as any).text)
+    .join('\n');
+
+  return {
+    text,
+    usageMetadata: {
+      promptTokenCount: response.usage?.input_tokens || Math.ceil(JSON.stringify(messages).length / 4),
+      candidatesTokenCount: response.usage?.output_tokens || Math.ceil(text.length / 4),
+    }
+  };
+}
+
+async function* streamAnthropic(options: ProviderOptions) {
+  const client = getAnthropicClient();
+  const model = options.model || process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
+  const system = options.systemInstruction;
+  const messages = formatMessagesForOpenRouter(options.messages);
+
+  const stream = await client.messages.create({
+    model,
+    max_tokens: 1024,
+    system,
+    messages,
+    stream: true,
+  });
+
+  let promptTokens = 0;
+  let completionTokens = 0;
+
+  for await (const chunk of stream) {
+    if (chunk.type === 'message_start' && chunk.message.usage) {
+      promptTokens = chunk.message.usage.input_tokens || 0;
+    }
+    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+      yield { type: 'content', text: chunk.delta.text };
+    }
+    if (chunk.type === 'message_delta' && chunk.usage) {
+      completionTokens = chunk.usage.output_tokens || 0;
+    }
+  }
+
+  yield {
+    type: 'stats',
+    model,
+    usageMetadata: {
+      promptTokenCount: promptTokens || Math.ceil(JSON.stringify(messages).length / 4),
+      candidatesTokenCount: completionTokens || 0,
+    }
+  };
 }
 
 // OpenRouter Helper & Message Formatter
@@ -318,13 +392,30 @@ async function chatGemini(options: ProviderOptions) {
 }
 
 // OpenAI Compatible Calls
-async function chatOpenAICompatible(options: ProviderOptions) {
-  const apiKey = process.env.OPENAI_API_KEY || '';
+function getOpenAICompatibleConfig(provider: string) {
+  if (provider === 'groq') {
+    return {
+      apiKey: process.env.GROQ_API_KEY || '',
+      keyName: 'GROQ_API_KEY',
+      baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
+      defaultModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    };
+  }
+  return {
+    apiKey: process.env.OPENAI_API_KEY || '',
+    keyName: 'OPENAI_API_KEY',
+    baseUrl: 'https://api.openai.com/v1/chat/completions',
+    defaultModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  };
+}
+
+async function chatOpenAICompatible(options: ProviderOptions, provider: string = 'openai') {
+  const { apiKey, keyName, baseUrl, defaultModel } = getOpenAICompatibleConfig(provider);
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not defined. Please check your environment variables.');
+    throw new Error(`${keyName} is not defined. Please check your environment variables.`);
   }
 
-  const model = options.model || 'gpt-4o-mini';
+  const model = options.model || defaultModel;
   const messages = formatMessagesForOpenAI(options);
 
   const headers: any = {
@@ -332,7 +423,7 @@ async function chatOpenAICompatible(options: ProviderOptions) {
     'Authorization': `Bearer ${apiKey}`,
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(baseUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -359,13 +450,13 @@ async function chatOpenAICompatible(options: ProviderOptions) {
   };
 }
 
-async function* streamOpenAICompatible(options: ProviderOptions) {
-  const apiKey = process.env.OPENAI_API_KEY || '';
+async function* streamOpenAICompatible(options: ProviderOptions, provider: string = 'openai') {
+  const { apiKey, keyName, baseUrl, defaultModel } = getOpenAICompatibleConfig(provider);
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not defined. Please check your environment variables.');
+    throw new Error(`${keyName} is not defined. Please check your environment variables.`);
   }
 
-  const model = options.model || 'gpt-4o-mini';
+  const model = options.model || defaultModel;
   const messages = formatMessagesForOpenAI(options);
 
   const headers: any = {
@@ -373,7 +464,7 @@ async function* streamOpenAICompatible(options: ProviderOptions) {
     'Authorization': `Bearer ${apiKey}`,
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(baseUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -490,10 +581,14 @@ function formatMessagesForOpenAI(options: ProviderOptions) {
 // Single Provider router - ONLY OpenRouter
 async function* streamChatSingleProvider(provider: string, options: ProviderOptions) {
   try {
-    if (provider === 'openrouter') {
+    if (provider === 'anthropic') {
+      yield* streamAnthropic(options);
+    } else if (provider === 'openrouter') {
       yield* streamOpenRouter(options);
     } else if (provider === 'gemini') {
       yield* streamGemini(options);
+    } else if (provider === 'openai' || provider === 'groq') {
+      yield* streamOpenAICompatible(options, provider);
     } else {
       throw new Error(`Unsupported AI provider: ${provider}`);
     }
@@ -504,10 +599,14 @@ async function* streamChatSingleProvider(provider: string, options: ProviderOpti
 
 async function chatSingleProvider(provider: string, options: ProviderOptions) {
   try {
-    if (provider === 'openrouter') {
+    if (provider === 'anthropic') {
+      return await chatAnthropic(options);
+    } else if (provider === 'openrouter') {
       return await chatOpenRouter(options);
     } else if (provider === 'gemini') {
       return await chatGemini(options);
+    } else if (provider === 'openai' || provider === 'groq') {
+      return await chatOpenAICompatible(options, provider);
     } else {
       throw new Error(`Unsupported AI provider: ${provider}`);
     }
@@ -521,8 +620,7 @@ export async function* streamChatWithFallback(
   options: ProviderOptions,
   activeProvider: string
 ): AsyncGenerator<any, void, unknown> {
-  // Only use OpenRouter
-  const provider = 'openrouter';
+  const provider = (activeProvider || 'anthropic').toLowerCase().trim();
   const startTime = Date.now();
   console.log(`[AI PROVIDER LAYER] Attempting stream with provider: ${provider}`);
 
@@ -545,8 +643,7 @@ export async function chatWithFallback(
   options: ProviderOptions,
   activeProvider: string
 ): Promise<any> {
-  // Only use OpenRouter
-  const provider = 'openrouter';
+  const provider = (activeProvider || 'anthropic').toLowerCase().trim();
   const startTime = Date.now();
   console.log(`[AI PROVIDER LAYER] Attempting chat with provider: ${provider}`);
 
