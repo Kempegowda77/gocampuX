@@ -323,7 +323,7 @@ async function startServer() {
       console.log('=== AI Provider Request ===');
       console.log(`Active Provider: ${activeProvider}`);
       console.log(`Model name: ${selectedModel}`);
-      console.log(`Project configuration: { isLowBandwidth: ${isLowBandwidth}, historyPruneLimit: ${historyPruneLimit}, useWebSearch: ${!!useWebSearch}, thinkingLevel: "${thinkingLevel || 'none'}", stream: ${!!stream} }`);
+      console.log(`Project configuration: { isLowBandwidth: ${isLowBandwidth}, historyPruneLimit: ${historyPruneLimit}, useWebSearch: ${!!useWebSearch}, thinkingLevel: "${thinkingLevel || 'none'}"}`);
       console.log('===========================');
 
       // 4. In-Memory Response Cache Lookup for frequent/frequent exact questions
@@ -376,7 +376,7 @@ async function startServer() {
 
       let customSystemInstruction = systemInstruction || 'You are a helpful, creative, and intelligent AI assistant.';
       if (isLowBandwidth) {
-        customSystemInstruction += ' WARNING: The user is on a slow or low-bandwidth connection. You MUST prioritize extreme brevity. Respond with high clarity using minimal tokens (ideally 1-2 concise sentences). Do NOT use markdown tables, long lists, blockquotes, or bullet formatting unless requested. Be extremely direct.';
+        customSystemInstruction += ' WARNING: The user is on a slow or low-bandwidth connection. You MUST prioritize extreme brevity. Respond with high clarity using minimal tokens (ideally 1-2 chunks).';
       }
 
       const options: ProviderOptions = {
