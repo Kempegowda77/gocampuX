@@ -1171,7 +1171,7 @@ export default function App() {
     const fullPhone = countryCode + phoneNumber.trim();
 
     try {
-      const response = await fetch('/api/otp/send', {
+      const response = await fetch('https://YOUR-RENDER-APP.onrender.com/api/otp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: fullPhone })
@@ -1224,7 +1224,7 @@ export default function App() {
     const fullPhone = countryCode + phoneNumber.trim();
 
     try {
-      const response = await fetch('/api/otp/verify', {
+      const response = await fetch('https://YOUR-RENDER-URL.onrender.com/api/otp/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: fullPhone, code: phoneOtp.trim() })
@@ -1737,7 +1737,7 @@ export default function App() {
         headers['X-Slow-Connection'] = 'true';
       }
 
-      const response = await fetch('/api/chat', {
+      const response = await fetch('https://YOUR-RENDER-URL.onrender.com/api/chat', {
         method: 'POST',
         headers,
         body: JSON.stringify({
