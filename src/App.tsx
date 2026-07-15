@@ -56,6 +56,7 @@ import {
 } from 'lucide-react';
 
 import CursorTrail from './components/CursorTrail';
+import { API_ENDPOINTS } from './config/api';
 
 // Firebase Firestore & Authentication integration
 import { testConnection, firebaseAppConfig } from './lib/firebase';
@@ -389,6 +390,7 @@ export default function App() {
 
   // Dynamic model-routing notification feedback
   const [routingFeedback, setRoutingFeedback] = useState<string>('');
+  const [apiError, setApiError] = useState<string>('');
 
   // Template Library states
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -1171,7 +1173,8 @@ export default function App() {
     const fullPhone = countryCode + phoneNumber.trim();
 
     try {
-      const response = await fetch('https://YOUR-RENDER-APP.onrender.com/api/otp/send', {
+      console.log('[API] Sending OTP request to:', API_ENDPOINTS.OTP_SEND);
+      const response = await fetch(API_ENDPOINTS.OTP_SEND, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: fullPhone })
@@ -1224,7 +1227,8 @@ export default function App() {
     const fullPhone = countryCode + phoneNumber.trim();
 
     try {
-      const response = await fetch('https://YOUR-RENDER-URL.onrender.com/api/otp/verify', {
+      console.log('[API] Verifying OTP request to:', API_ENDPOINTS.OTP_VERIFY);
+      const response = await fetch(API_ENDPOINTS.OTP_VERIFY, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: fullPhone, code: phoneOtp.trim() })
@@ -1552,6 +1556,18 @@ export default function App() {
     scrollToBottom('auto');
   }, [activeSessionId]);
 
+  useEffect(() => {
+    const verifyApiHealth = async () => {
+      try {
+        const response = await fetch(API_ENDPOINTS.HEALTH);
+        console.log('[API] Health check:', API_ENDPOINTS.HEALTH, response.status);
+      } catch (error) {
+        console.warn('[API] Health check failed:', API_ENDPOINTS.HEALTH, error);
+      }
+    };
+    verifyApiHealth();
+  }, []);
+
   // Main input submission
   const handleSubmit = async (textToSend?: string) => {
     const userSubmitTime = Date.now();
@@ -1570,6 +1586,7 @@ export default function App() {
     setUploadedFiles([]); // clear attachment queue immediately
 
     setIsGenerating(true);
+    setApiError('');
 
     const userMsg: Message = {
       id: `msg_${Date.now()}`,
@@ -1737,7 +1754,8 @@ export default function App() {
         headers['X-Slow-Connection'] = 'true';
       }
 
-      const response = await fetch('https://YOUR-RENDER-URL.onrender.com/api/chat', {
+      console.log('[API] Sending chat request to:', API_ENDPOINTS.CHAT);
+      const response = await fetch(API_ENDPOINTS.CHAT, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -1964,7 +1982,27 @@ export default function App() {
       }
     } catch (err: any) {
       console.error('Fetch reply failed:', err);
-      const errMessage = `Error: ${err.message || 'Unable to fetch reply. Verify your backend service and API credentials.'}`;
+      let healthStatus: 'ok' | 'down' | 'unknown' = 'unknown';
+      try {
+        const healthResponse = await fetch(API_ENDPOINTS.HEALTH);
+        healthStatus = healthResponse.ok ? 'ok' : 'down';
+        console.log('[API] Health check after chat failure:', healthResponse.status);
+      } catch (healthError) {
+        console.warn('[API] Health check after chat failure failed:', healthError);
+        healthStatus = 'down';
+      }
+
+      const rawError = (err?.message || '').toLowerCase();
+      let userFriendlyError = 'Unable to get a response right now. Please try again in a moment.';
+
+      if (rawError.includes('gemini_api_key') || rawError.includes('api key')) {
+        userFriendlyError = 'Server configuration error: GEMINI_API_KEY is missing or invalid. Please set it in Vercel environment variables and redeploy.';
+      } else if (healthStatus === 'down') {
+        userFriendlyError = 'Cannot reach the backend server. Please verify deployment status and try again.';
+      }
+
+      setApiError(userFriendlyError);
+      const errMessage = `⚠️ ${userFriendlyError}`;
       
       const errorSessions = chatSessions.map(s => {
         if (s.id === activeSessionId) {
@@ -3620,6 +3658,13 @@ export default function App() {
                   <span className="flex items-center gap-1 text-cyan-400 font-medium select-none animate-pulse">
                     <Zap className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                     {routingFeedback}
+                  </span>
+                )}
+
+                {apiError && (
+                  <span className="flex items-center gap-1 text-rose-400 font-medium select-none">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    {apiError}
                   </span>
                 )}
               </div>
