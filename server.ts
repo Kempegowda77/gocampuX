@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { streamChatWithFallback, chatWithFallback, getOrderedProviders, Message, ProviderOptions } from './src/lib/aiProvider';
+import { streamChatWithFallback, chatWithFallback, Message, ProviderOptions } from './src/lib/aiProvider';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -77,7 +77,8 @@ function getTwilioClient() {
 
 async function startServer() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
   
   // Enable automatic Gzip/Brotli payload compression for low bandwidth networks.
   // Bypass compression for SSE stream so chunks flow instantly without server buffering.
@@ -91,63 +92,73 @@ async function startServer() {
   }));
 
   // Log Active AI Provider and Loaded Keys
-  const activeProvider = (process.env.AI_PROVIDER || 'anthropic').toLowerCase().trim();
+  const activeProvider = (process.env.AI_PROVIDER || 'gemini').toLowerCase().trim();
   const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
   const hasGeminiKey = !!process.env.GEMINI_API_KEY;
   const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
   const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY;
   const hasGroqKey = !!process.env.GROQ_API_KEY;
 
-  console.log('=== AI Provider Configuration ===');
-  console.log(`Active Provider: ${activeProvider}`);
+  console.log('=== 🚀 GocampuX AI Server Initialization ===');
+  console.log(`Active Provider: ${activeProvider.toUpperCase()}`);
   console.log(`Anthropic API Key Loaded: ${hasAnthropicKey}`);
   console.log(`Gemini API Key Loaded: ${hasGeminiKey}`);
   console.log(`OpenAI API Key Loaded: ${hasOpenAIKey}`);
   console.log(`OpenRouter API Key Loaded: ${hasOpenRouterKey}`);
   console.log(`Groq API Key Loaded: ${hasGroqKey}`);
-  console.log(`Project configuration: { nodeEnv: "${process.env.NODE_ENV || 'development'}", port: 3000 }`);
-  console.log('================================');
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('==========================================');
 
-  // Startup Validation based on selected AI_PROVIDER (Logged on startup, validated at request time to prevent boot crashes on deployment)
+  // Startup Validation based on selected AI_PROVIDER
   let startupValidationError = '';
   if (activeProvider === 'anthropic') {
     if (!process.env.ANTHROPIC_API_KEY) {
-      startupValidationError = 'Startup Validation Failed: ANTHROPIC_API_KEY environment variable is required when AI_PROVIDER is "anthropic".';
+      startupValidationError = 'ANTHROPIC_API_KEY is required when AI_PROVIDER is "anthropic"';
     } else if (!process.env.ANTHROPIC_MODEL) {
-      startupValidationError = 'Startup Validation Failed: ANTHROPIC_MODEL environment variable is required when AI_PROVIDER is "anthropic".';
+      startupValidationError = 'ANTHROPIC_MODEL is required when AI_PROVIDER is "anthropic"';
     }
   } else if (activeProvider === 'openai') {
     if (!process.env.OPENAI_API_KEY) {
-      startupValidationError = 'Startup Validation Failed: OPENAI_API_KEY environment variable is required when AI_PROVIDER is "openai".';
+      startupValidationError = 'OPENAI_API_KEY is required when AI_PROVIDER is "openai"';
     } else if (!process.env.OPENAI_MODEL) {
-      startupValidationError = 'Startup Validation Failed: OPENAI_MODEL environment variable is required when AI_PROVIDER is "openai".';
+      startupValidationError = 'OPENAI_MODEL is required when AI_PROVIDER is "openai"';
     }
   } else if (activeProvider === 'openrouter') {
     if (!process.env.OPENROUTER_API_KEY) {
-      startupValidationError = 'Startup Validation Failed: OPENROUTER_API_KEY environment variable is required when AI_PROVIDER is "openrouter".';
+      startupValidationError = 'OPENROUTER_API_KEY is required when AI_PROVIDER is "openrouter"';
     } else if (!process.env.OPENROUTER_MODEL) {
-      startupValidationError = 'Startup Validation Failed: OPENROUTER_MODEL environment variable is required when AI_PROVIDER is "openrouter".';
+      startupValidationError = 'OPENROUTER_MODEL is required when AI_PROVIDER is "openrouter"';
     }
   } else if (activeProvider === 'groq') {
     if (!process.env.GROQ_API_KEY) {
-      startupValidationError = 'Startup Validation Failed: GROQ_API_KEY environment variable is required when AI_PROVIDER is "groq".';
+      startupValidationError = 'GROQ_API_KEY is required when AI_PROVIDER is "groq"';
     } else if (!process.env.GROQ_MODEL) {
-      startupValidationError = 'Startup Validation Failed: GROQ_MODEL environment variable is required when AI_PROVIDER is "groq".';
+      startupValidationError = 'GROQ_MODEL is required when AI_PROVIDER is "groq"';
     }
   } else if (activeProvider === 'gemini') {
     if (!process.env.GEMINI_API_KEY) {
-      startupValidationError = 'Startup Validation Failed: GEMINI_API_KEY environment variable is required when AI_PROVIDER is "gemini".';
+      startupValidationError = 'GEMINI_API_KEY is required when AI_PROVIDER is "gemini"';
     }
   } else {
-    startupValidationError = `Startup Validation Failed: Unsupported AI_PROVIDER "${activeProvider}".`;
+    startupValidationError = `Unsupported AI_PROVIDER: ${activeProvider}`;
   }
 
   if (startupValidationError) {
-    console.error('================================================================');
-    console.error(`[STARTUP WARNING] ${startupValidationError}`);
-    console.error('The application has started successfully to satisfy health checks, but chat requests will fail until these variables are configured.');
-    console.error('================================================================');
+    console.error('⚠️  STARTUP WARNING:');
+    console.error(startupValidationError);
+    console.error('Chat requests will fail until variables are configured.');
+  } else {
+    console.log('✅ All required environment variables are configured!');
   }
+
+  // Health check endpoint
+  app.get('/api/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      provider: activeProvider,
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   // Secure SMS OTP Send Endpoint
   app.post('/api/otp/send', async (req, res) => {
@@ -188,7 +199,7 @@ async function startServer() {
         attempts: 0
       });
 
-      console.log(`[SERVER OTP SECURITY LOG] Generated new OTP for ${cleanedPhone} (expires in 5m)`);
+      console.log(`[OTP] Generated new OTP for ${cleanedPhone} (expires in 5m)`);
 
       const twilioSid = process.env.TWILIO_ACCOUNT_SID;
       const twilioToken = process.env.TWILIO_AUTH_TOKEN;
@@ -202,21 +213,20 @@ async function startServer() {
             from: twilioPhone,
             to: cleanedPhone
           });
-          console.log(`[SERVER OTP SUCCESS] Real SMS successfully sent to ${cleanedPhone}`);
+          console.log(`[OTP] SMS sent to ${cleanedPhone}`);
         } catch (smsError: any) {
-          console.error('[SERVER OTP ERROR] Twilio SMS dispatch failed:', smsError);
+          console.error('[OTP ERROR]', smsError);
           return res.status(502).json({ 
-            error: `SMS transmission failed: ${smsError.message || 'Unknown carrier/network error.'}` 
+            error: `SMS transmission failed: ${smsError.message || 'Unknown error'}` 
           });
         }
       } else {
-        // Safe console-only logging mode if the user's Twilio credentials aren't configured yet
-        console.warn('[SERVER OTP CONFIG WARNING] Twilio environment variables are missing! See .env.example.');
-        console.log(`[SERVER SECURE TEST OTP - PRIVATE BACKEND LOG]: ${otp}`);
+        console.warn('[OTP] Twilio not configured - using debug mode');
+        console.log(`[DEBUG OTP]: ${otp}`);
         
         return res.status(200).json({
           success: true,
-          warning: 'Twilio secrets are not set in the environment yet. The secure OTP has been output to the private server logs for testing.',
+          warning: 'Twilio not configured. OTP output to server logs.',
           message: 'OTP processed (debug mode).'
         });
       }
@@ -265,7 +275,7 @@ async function startServer() {
 
       // Validation Complete: invalidate to prevent replay attacks
       otpStore.delete(cleanedPhone);
-      console.log(`[SERVER OTP SUCCESS] Phone ${cleanedPhone} successfully verified.`);
+      console.log(`[OTP] Phone ${cleanedPhone} successfully verified.`);
       
       return res.json({ success: true, message: 'Phone number verified successfully!' });
     } catch (error: any) {
@@ -284,90 +294,26 @@ async function startServer() {
         return res.status(400).json({ error: 'Messages array is required.' });
       }
 
-      // If there was a startup validation error for the selected provider, fail the request with a clear message
+      // If there was a startup validation error for the selected provider, fail the request
       if (startupValidationError) {
         return res.status(400).json({ error: startupValidationError });
       }
 
-      // 1. Connection Optimization (HTTP keep-alive for fast persistent connection reuse)
+      // Connection Optimization
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('Keep-Alive', 'timeout=60, max=1000');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-      // 2. Detect Adaptive Connection State (Low Bandwidth / Slow Connections)
+      // Detect Low Bandwidth
       const isLowBandwidth = req.headers['x-low-bandwidth'] === 'true' || req.query.lowBandwidth === 'true';
-
-      // 3. Compact Context Truncation (Send ONLY the last 3-5 relevant messages to optimize latency)
       const historyPruneLimit = isLowBandwidth ? 3 : 5;
       const relevantMessages = messages.slice(-historyPruneLimit);
 
-      const activeProvider = (process.env.AI_PROVIDER || 'anthropic').toLowerCase().trim();
-      let selectedModel = model || 'claude-opus-4-8';
+      // Model selection
+      let selectedModel = model || process.env.GEMINI_MODEL || 'gemini-3.5-flash';
 
-      if (activeProvider === 'anthropic' && (!model || model.includes('gemini') || model.includes('gpt') || model.includes('llama') || model === 'claude-sonnet-4-0')) {
-        selectedModel = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
-      } else if (activeProvider === 'gemini' && (!model || model.includes('claude') || model.includes('gpt') || model.includes('llama'))) {
-        selectedModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
-      } else if (activeProvider === 'openai' && (!model || model.includes('gemini') || model.includes('claude') || model.includes('llama'))) {
-        selectedModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-      } else if (activeProvider === 'openrouter' && (!model || model.includes('gemini') || model.includes('claude') || model.includes('gpt'))) {
-        selectedModel = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.1-8b-instruct:free';
-      } else if (activeProvider === 'groq' && (!model || model.includes('gemini') || model.includes('claude') || model.includes('gpt'))) {
-        selectedModel = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-      }
-
-      // Explicitly normalize/map 'claude-sonnet-4-0' to 'claude-opus-4-8'
-      if (selectedModel === 'claude-sonnet-4-0') {
-        selectedModel = 'claude-opus-4-8';
-      }
-
-      console.log('=== AI Provider Request ===');
-      console.log(`Active Provider: ${activeProvider}`);
-      console.log(`Model name: ${selectedModel}`);
-      console.log(`Project configuration: { isLowBandwidth: ${isLowBandwidth}, historyPruneLimit: ${historyPruneLimit}, useWebSearch: ${!!useWebSearch}, thinkingLevel: "${thinkingLevel || 'none'}"}`);
-      console.log('===========================');
-
-      // 4. In-Memory Response Cache Lookup for frequent/frequent exact questions
-      const userMessages = relevantMessages.filter((msg: any) => msg.role === 'user');
-      const lastUserMsg = userMessages[userMessages.length - 1];
-      const hasAttachments = lastUserMsg?.attachments && lastUserMsg.attachments.length > 0;
-      
-      const cacheKey = lastUserMsg && !hasAttachments
-        ? `${selectedModel}_${lastUserMsg.content.trim().toLowerCase().replace(/[^\w\s]/g, '')}`
-        : null;
-
-      if (cacheKey) {
-        cleanAndCapCache();
-        const cached = responseCache.get(cacheKey);
-        if (cached && (Date.now() - cached.cachedAt < 30 * 60 * 1000)) { // 30-minute validity
-          console.log(`[LATENCY PRO: CACHE HIT] Bypassing AI entirely for key: "${cacheKey}" - Speed: < 1ms`);
-          
-          if (stream) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.write(`data: ${JSON.stringify({ text: cached.text, groundingMetadata: cached.groundingMetadata, cached: true })}\n\n`);
-            
-            res.write(`data: ${JSON.stringify({
-              stats: {
-                serverOverhead: Date.now() - routeStart,
-                geminiTtft: 0,
-                geminiGenerationTime: 0,
-                serverTotalTime: Date.now() - routeStart,
-                model: `${selectedModel} (Cached)`,
-                usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 0 },
-                cached: true
-              }
-            })}\n\n`);
-
-            res.write('data: [DONE]\n\n');
-            res.end();
-            return;
-          } else {
-            return res.json({ text: cached.text, groundingMetadata: cached.groundingMetadata, cached: true });
-          }
-        }
-      }
-
-      // Parse messages to standard format for provider
       const formattedMessages: Message[] = relevantMessages.map((msg: any) => ({
         role: msg.role === 'assistant' ? 'assistant' : 'user',
         content: msg.content || '',
@@ -376,7 +322,7 @@ async function startServer() {
 
       let customSystemInstruction = systemInstruction || 'You are a helpful, creative, and intelligent AI assistant.';
       if (isLowBandwidth) {
-        customSystemInstruction += ' WARNING: The user is on a slow or low-bandwidth connection. You MUST prioritize extreme brevity. Respond with high clarity using minimal tokens (ideally 1-2 chunks).';
+        customSystemInstruction += ' WARNING: User is on slow connection. Keep responses brief and concise.';
       }
 
       const options: ProviderOptions = {
@@ -430,14 +376,6 @@ async function startServer() {
             }
           }
 
-          if (cacheKey && fullAccumulatedText) {
-            responseCache.set(cacheKey, {
-              text: fullAccumulatedText,
-              groundingMetadata: finalGroundingMetadata,
-              cachedAt: Date.now()
-            });
-          }
-
           const routeEnd = Date.now();
           const serverOverhead = aiStartTime - routeStart;
           const geminiTtft = firstChunkTime > 0 ? firstChunkTime - aiStartTime : 0;
@@ -473,14 +411,6 @@ async function startServer() {
         const actualUsedProvider = result.provider || activeProvider;
         const actualUsedModel = result.model || selectedModel;
 
-        if (cacheKey && text) {
-          responseCache.set(cacheKey, {
-            text,
-            groundingMetadata,
-            cachedAt: Date.now()
-          });
-        }
-
         const routeEnd = Date.now();
         res.json({
           text,
@@ -504,6 +434,14 @@ async function startServer() {
     }
   });
 
+  // CORS preflight
+  app.options('*', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.sendStatus(200);
+  });
+
   // Serve static assets or mount Vite dev middleware
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
@@ -521,10 +459,12 @@ async function startServer() {
 
   const port = Number(process.env.PORT) || 3000;
   app.listen(port, '0.0.0.0', () => {
-    console.log(`Server running in ${isProd ? 'production' : 'development'} mode at http://0.0.0.0:${port}`);
+    console.log(`\n✅ Server running at http://0.0.0.0:${port}`);
+    console.log(`Environment: ${isProd ? 'PRODUCTION' : 'DEVELOPMENT'}\n`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('Failed to start server:', err);
+  console.error('❌ Failed to start server:', err);
+  process.exit(1);
 });
